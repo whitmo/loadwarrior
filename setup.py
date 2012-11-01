@@ -30,11 +30,12 @@ setup(name='loadwarrior',
       ],
       entry_points="""
       [console_scripts]
-      lw=loadwarrior.cli.main
+      lw=loadwarrior.cli:main
       [loadwarrior.cli]
-      start=loadwarrior.cli.start
-      stop=loadwarrior.cli.stop
-      incr=loadwarrior.cli.incr
-      dec=loadwarrior.cli.dec
+      bench=loadwarrior.cli:Bench
+      #start=loadwarrior.cli:start
+      #stop=loadwarrior.cli:stop
+      #incr=loadwarrior.cli:incr
+      #dec=loadwarrior.cli:dec
       """,
       )
