@@ -1,0 +1,4 @@
+include:
+  - circus
+  - general
+  - webserver
