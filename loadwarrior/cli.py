@@ -36,6 +36,7 @@ class CLIApp(App):
         parser.add_argument('--config',
                             type=path,
                             default=path('~/.loadwarrior/global.yml'))
+        parser.add_argument('--host')        
         return parser
     
     def initialize_app(self, argv):
@@ -43,6 +44,7 @@ class CLIApp(App):
 
     def prepare_to_run_command(self, cmd):
         self.log.debug('prepare_to_run_command %s', cmd.__class__.__name__)
+        import pdb;pdb.set_trace()
 
     def clean_up(self, cmd, result, err):
         self.log.debug('clean_up %s', cmd.__class__.__name__)
@@ -66,7 +68,6 @@ http://monitoring/render/?width=1123
 &title=Loadtest%20metrics
 &from=12%3A30_20121101
 """
-
         
 
 class Bench(Command):

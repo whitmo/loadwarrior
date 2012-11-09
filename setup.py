@@ -27,7 +27,8 @@ setup(name='loadwarrior',
                         "cliff",
                         "cliff-tablib",
                         "requests",
-                        "path.py"
+                        "path.py",
+                        "circus"
                         ],
       entry_points="""
       [console_scripts]
