@@ -1,14 +1,16 @@
 from cliff.app import App
 from cliff.command import Command
 from cliff.commandmanager import CommandManager
+from path import path
+from stuf import stuf
 import gevent
+import json
 import logging
 import pkg_resources
-import sys
 import requests
-import json
+import sys
 import time
-from stuf import stuf
+
 
 log = logging.getLogger(__name__)
 
@@ -25,8 +27,16 @@ class CLIApp(App):
         super(CLIApp, self).__init__(
             description=self.specifier,
             version=self.version,
-            command_manager=CommandManager(self.specifier),
+            command_manager=CommandManager(self.specifier)
             )
+
+    def build_option_parser(self, description, version, argparse_kwargs=None):
+        self.log.debug('BOP')
+        parser = super(CLIApp, self).build_option_parser(description, version, argparse_kwargs=argparse_kwargs)
+        parser.add_argument('--config',
+                            type=path,
+                            default=path('~/.loadwarrior/global.yml'))
+        return parser
     
     def initialize_app(self, argv):
         self.log.debug('initialize_app')
@@ -57,28 +67,10 @@ http://monitoring/render/?width=1123
 &from=12%3A30_20121101
 """
 
-class Timer(stuf):
-    def __init__(self):
-        self.start = None
-        self.final = None
-        
-    @property
-    def elapsed(self):
-        if self.final is None:
-            return time.time() - self.start
-        return self.final
-
-    def __enter__(self):
-        self.start = time.time()
-
-    def __exit__(self, type, value, tb):
-        self.final = self.elapsed
-        self.end = time.time()
-        return False
         
 
 class Bench(Command):
-    "Does a bench run"
+    """Run a benchmark"""
 
     log = log
 
@@ -122,9 +114,9 @@ class Bench(Command):
             while True:
                 gevent.sleep(sample_interval)
                 yield self.stats_report(url)
+                
         res = requests.get(url + 'stop')
         self.log.info("%d end" %howmany)
-
 
 
 class TestEnds(Exception):
@@ -132,6 +124,25 @@ class TestEnds(Exception):
     The test has ended
     """
 
+
+class Timer(stuf):
+    def __init__(self):
+        self.start = None
+        self.final = None
+        
+    @property
+    def elapsed(self):
+        if self.final is None:
+            return time.time() - self.start
+        return self.final
+
+    def __enter__(self):
+        self.start = time.time()
+
+    def __exit__(self, type, value, tb):
+        self.final = self.elapsed
+        self.end = time.time()
+        return False
 
 
 

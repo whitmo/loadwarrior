@@ -1,6 +1,5 @@
-from setuptools import setup
 from setuptools import find_packages
-#import sys
+from setuptools import setup
 import os
 
 version = '0.1'
@@ -14,7 +13,8 @@ setup(name='loadwarrior',
       version=version,
       description="Graphite + locust for load generation and metrics",
       long_description=README + CHANGES,
-      classifiers=[], # Get strings from http://pypi.python.org/pypi?%3Aaction=list_classifiers
+      classifiers=[],  # Get strings from
+                       # http://pypi.python.org/pypi?%3Aaction=list_classifiers
       keywords='',
       author='whit',
       author_email='whit at surveymonkey dot com',
@@ -23,11 +23,12 @@ setup(name='loadwarrior',
       packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
       include_package_data=True,
       zip_safe=False,
-      install_requires=[
-        "salt",
-        "cliff",
-        "requests"
-      ],
+      install_requires=["salt",
+                        "cliff",
+                        "cliff-tablib",
+                        "requests",
+                        "path.py"
+                        ],
       entry_points="""
       [console_scripts]
       lw=loadwarrior.cli:main
