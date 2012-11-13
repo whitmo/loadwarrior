@@ -1,9 +1,3 @@
-"""
-Tools for manipulating locust
-"""
+from loadwarrior.locust import setup
+setup(__name__)
 
-def load_loci():
-    print __name__
-    import pdb;pdb.set_trace()
-
-load_loci()

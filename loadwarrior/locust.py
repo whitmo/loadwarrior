@@ -12,7 +12,7 @@ def candidates(filename):
     """
     A generator of possible pathes for a file to exist in config
     """
-    if filename.startwith('/'):
+    if filename.startswith('/'):
         yield filename
         raise StopIteration
     if filename.startswith('~/'):
@@ -39,8 +39,8 @@ def find_config(filename, candidates=candidates, raise_error=True, logger=logger
     nf = ",".join(notfound)
     msg = "%s not found in %s"
     if raise_error:
-        raise ValueError("%s not found in %s" %nf)
-    logger.error(msg, nf)
+        raise ValueError("%s not found in %s" %(filename, nf))
+    logger.error(msg, filename, nf)
     return None
 
 
@@ -53,7 +53,14 @@ def setup(name, conffile='locust.yml'):
         
     with sysimport() as sys:
         module = sys.modules[name]
-        load_loci(mod, locust_data.pop('loci'))
+        [setattr(module, name, pypath.resolve(spec)) \
+         for name, spec in locust_data.pop('loci').items()]
+
+    plugins = module.plugins = {}
+    for name, spec in locust_data.items():
+        if spec.has_key('setup'):
+            factory = pypath.resolve(spec.pop('setup'))
+            plugins[name] = factory(**spec)
 
 
 @contextmanager
