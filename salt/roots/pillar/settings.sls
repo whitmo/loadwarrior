@@ -1,9 +1,0 @@
-debug: True
-dbengine: django.db.backends.mysql
-dbname: mydb
-dbuser: mydbuser
-dbpassword: myterribledbpassword
-dbhost: localhost
-dbport: 3306
-git_rev: master
-git_repo: git@github.com:username/repo.git

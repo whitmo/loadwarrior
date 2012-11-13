@@ -1,1 +1,5 @@
--e git://github.com/whitmo/locust.git#egg=locustio-dev
+http://gevent.googlecode.com/files/gevent-1.0b4.tar.gz
+-e git+git://github.com/whitmo/locust.git#egg=locustio
+
+# next line will go away with generic test loader
+-e git+git://code.corp.surveymonkey.com/whit/smlt.git#egg=smlt-dev

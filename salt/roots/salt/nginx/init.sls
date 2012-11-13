@@ -1,11 +1,3 @@
-app-pkgs:
-  pkg.installed:
-    - names:
-      - git
-      - python-virtualenv
-      - python-dev
-
-
 nginx-ppa:
   cmd.run:
     - name: "add-apt-repository -Y ppa:nginx/stable && apt-get update"
