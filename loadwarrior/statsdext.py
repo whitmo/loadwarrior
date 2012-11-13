@@ -61,4 +61,5 @@ def register_statsd_emitters(port, host, sample_rate=0.5, loader=LoadStats, hook
     hooks.locust_error += stats.locust_error
     hooks.quitting += partial(stats.users, 0)
     hooks.hatch_complete += stats.users
+    return stats
 
