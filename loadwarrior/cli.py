@@ -1,55 +1,228 @@
+#from . import models
+from circus.client import CircusClient
 from cliff.app import App
 from cliff.command import Command
 from cliff.commandmanager import CommandManager
+from functools import partial
+from loadwarrior.utils import reify
 from path import path
+from pprint import pformat
+from stuf import frozenstuf
 from stuf import stuf
 import gevent
+import hashlib
 import json
 import logging
 import pkg_resources
+import re
 import requests
 import sys
 import time
-
+import yaml
 
 log = logging.getLogger(__name__)
 
 
 class CLIApp(App):
     """
-    command line interface 
+    command line interface
     """
+    def_slave_num = 10
     log = log
     specifier = 'loadwarrior.cli'
     version = pkg_resources.get_distribution('loadwarrior').version
-    
+    default_config = path('~/.loadwarrior/global.yml').expanduser()
+    config_template = dict(
+        circus_port=5555,
+        locust_port=8889,
+        host='localhost',
+        target_url=None,
+        running=False)
+    cclient_factory = CircusClient
+
     def __init__(self):
+        self._settings = None
         super(CLIApp, self).__init__(
             description=self.specifier,
             version=self.version,
             command_manager=CommandManager(self.specifier)
-            )
+        )
+
+    @reify
+    def gc(self):
+        return frozenstuf(self._load_config(self.default_config))
 
     def build_option_parser(self, description, version, argparse_kwargs=None):
-        self.log.debug('BOP')
         parser = super(CLIApp, self).build_option_parser(description, version, argparse_kwargs=argparse_kwargs)
-        parser.add_argument('--config',
-                            type=path,
-                            default=path('~/.loadwarrior/global.yml'))
-        parser.add_argument('--host')        
+        parser.add_argument('--circus-port',
+                            type=int,
+                            default=self.gc.circus_port,
+                            help="circus endpoint")
+
+        parser.add_argument('--locust-port',
+                            type=int,
+                            default=self.gc.locust_port,
+                            help="URL of locust master")
+
+        parser.add_argument('--host',
+                            default=self.gc.host,
+                            help="IP or domain name of where locust and circus are running")
+
+        tg_kw = dict(help="current target of testing")
+        tg =  self.gc.get('target_url', None)
+        if tg is not None:
+            tg_kw['default'] = tg
+        parser.add_argument('--target_url', '-t', **tg_kw)
         return parser
-    
+
     def initialize_app(self, argv):
         self.log.debug('initialize_app')
 
     def prepare_to_run_command(self, cmd):
         self.log.debug('prepare_to_run_command %s', cmd.__class__.__name__)
-        import pdb;pdb.set_trace()
+
+    def _load_config(self, confp):
+        lw_folder = confp.parent
+        if not lw_folder.exists():
+            lw_folder.mkdir()
+
+        if not confp.exists():
+            self.write_yml(confp, self.config_template)
+
+        with open(confp) as stream:
+            return yaml.load(stream)
+
+    @staticmethod
+    def write_yml(fpath, data):
+        fpath.write_text(yaml.dump(data, default_flow_style=False))
+        return fpath
 
     def clean_up(self, cmd, result, err):
         self.log.debug('clean_up %s', cmd.__class__.__name__)
         if err:
             self.log.debug('got an error: %s', err)
+
+    remote_locust_env = path('/opt/lw-locust')
+
+    # --slave
+    cmd_tmplt = '{env}/bin/locust -P {port} -H {target_url} -f {env}/share/locustfile.py {role}'
+    role_tmplt = '--{role} {extra}'
+
+    @reify
+    def locust_url(self):
+        return "http://{0}:{1}".format(self.options.host, self.options.locust_port)
+
+    @reify
+    def make_loci_cmd(self):
+        return partial(self.cmd_tmplt.format,
+                       target_url=self.options.target_url,
+                       env=self.remote_locust_env,
+                       port=self.options.locust_port)
+
+    @reify
+    def circus_endpoint(self):
+        return "tcp://{0}:{1}".format(self.options.host, self.options.circus_port)
+
+    @reify
+    def urlsig(self):
+        return hashlib.sha1(self.options.target_url).hexdigest()[:8]
+
+    slug = 'loadwarrior'
+
+    @property
+    def master_and_slave(self):
+        for name in ':master', ':slave':
+            ret = self.circus_call('stats', name=self.slug + name)
+            if ret['status'] == 'error':
+                yield None
+            else:
+                yield ret['info']
+
+    unworking = set(('No such process (stopped?)',))
+
+    @property
+    def loci_up(self):
+        master, slave = self.master_and_slave
+        if not all((master, slave)):
+            return False
+
+        opts = self.circus_call('options', name=master)
+        url = self.extract_url(opts['options']['cmd']).groupdict('url')
+
+        if url != self.options.target_url.strip():
+            self.circus_call('rm', name=slave)
+            self.circus_call('rm', name=master)
+            return False
+        return True
+
+    extract_url = staticmethod(re.compile(".* -H (?P<url>http://.*) -f").match)
+
+    @reify
+    def cclient(self):
+        #@@ add ssh support??
+        return CircusClient(endpoint=self.circus_endpoint)
+
+    @staticmethod
+    def ccmd(command, **props):
+        return dict(command=command, properties=props)
+
+    def clear_locust(self):
+        self.circus_call('rm', name=self.slug + ':master')
+        self.circus_call('rm', name=self.slug + ':slave')
+
+    def circus_call(self, command, **props):
+        out = self.cclient.call(self.ccmd(command, **props))
+        if out['status'] != 'ok':
+            self.log.error(out)
+        return out
+
+    def prep_loci(self):
+        if not self.loci_up:
+            master_cmd = self.make_loci_cmd(role=self.role_tmplt.format(role='master', extra=''))
+            slave_cmd = self.make_loci_cmd(role=self.role_tmplt.format(role='slave', extra=''))
+
+            # fire up new ones
+            #@@ make slaves numprocs parameterizable
+            options = dict(shell=True,
+                           stdout_stream={
+                               'class':'FileStream',
+                               'filename':'/var/log/loadwarrior.log',
+                               'refresh_time':0.3})
+            self.log.info(master_cmd)
+            self.circus_call('add', cmd=master_cmd, start=True,
+                             name=self.slug + ":master",
+                             options=options)
+
+            self.log.info(slave_cmd)
+            options['numprocesses'] = 5
+            self.circus_call('add', cmd=slave_cmd, start=True,
+                             name=self.slug + ":slave",
+                             options=options)
+            import pdb;pdb.set_trace()
+            pass
+
+
+
+
+
+"""
+stdout_stream.class = FileStream
+stdout_stream.filename = test.log
+stdout_stream.refresh_time = 0.3
+"""
+
+"""
+[program:locusts]
+command = /opt/loadtest/locust/bin/locust -P 8889 -H http://monkeytest1.com -f /opt/loadtest/locust/src/smlt/loci/anonweb.py --slave
+numprocs = 10
+process_name = %(process_num)d
+redirect_stderr = true
+
+[program:locust_master]
+command = /opt/loadtest/locust/bin/locust -P 8889 -H http://monkeytest1.com -f /opt/loadtest/locust/src/smlt/loci/anonweb.py --master
+autostart=True
+redirect_stderr = true
+"""
 
 """
 http://monitoring/render/?width=1123
@@ -68,69 +241,12 @@ http://monitoring/render/?width=1123
 &title=Loadtest%20metrics
 &from=12%3A30_20121101
 """
-        
-
-class Bench(Command):
-    """Run a benchmark"""
-
-    log = log
-
-    def get_parser(self, prog_name):
-        parser = super(Bench, self).get_parser(prog_name)
-        parser.add_argument('--interval', '-i', type=int, default=60*5)
-        parser.add_argument('--cohort', '-c', default="10:20:40:60:80:100")
-        parser.add_argument('--rate', '-r', default=20)
-        parser.add_argument('--sample-interval', '-s', type=int, default=10)
-        parser.add_argument('url', type=str)
-        return parser
-
-    def take_action(self, pargs):
-        cohorts = [int(x) for x in pargs.cohort.split(':')]
-        timer = Timer() 
-        with timer:
-            for group in cohorts:
-                out = [data for data in self.runner(pargs.url, group,
-                                                    pargs.rate, pargs.interval,
-                                                    pargs.sample_interval)]
-        self.log.info("&from=%(start)d&until=%(end)d %(final)s" %timer)
-        return out
-
-    def stats_report(self, url):
-        stats = requests.get(url + 'stats/requests').content
-        data = json.loads(stats)
-        return data
-        
-    def runner(self, url, howmany, rate, interval, sample_interval):
-        self.log.info("%d start" %howmany)
-        ramp = howmany/rate
-        total_time = ramp + interval
-        if not url.endswith('/'):
-            url = url + '/'
-            
-        res = requests.get(url + 'stop')
-        self.log.info(res.content)
-        with gevent.Timeout(total_time, False):
-            res = requests.post(url + 'swarm', data=dict(locust_count=howmany, hatch_rate=rate))
-            self.log.info(res.content)
-            while True:
-                gevent.sleep(sample_interval)
-                yield self.stats_report(url)
-                
-        res = requests.get(url + 'stop')
-        self.log.info("%d end" %howmany)
-
-
-class TestEnds(Exception):
-    """
-    The test has ended
-    """
-
 
 class Timer(stuf):
     def __init__(self):
         self.start = None
         self.final = None
-        
+
     @property
     def elapsed(self):
         if self.final is None:
@@ -146,11 +262,60 @@ class Timer(stuf):
         return False
 
 
+class Bench(Command):
+    """Run a benchmark"""
+
+    log = log
+    timer = Timer()
+
+    def get_parser(self, prog_name):
+        parser = super(Bench, self).get_parser(prog_name)
+        parser.add_argument('--interval', '-i', type=int, default=60*5)
+        parser.add_argument('--cohort', '-c', default="10:20:40:60:80:100")
+        parser.add_argument('--rate', '-r', default=20)
+        parser.add_argument('--sample-interval', '-s', type=int, default=10)
+        #parser.add_argument('url', type=str)
+        return parser
+
+    def take_action(self, pargs):
+        self.app.clear_locust()
+        assert self.app.options.target_url, "No target url"
+        self.app.prep_loci()
+        cohorts = [int(x) for x in pargs.cohort.split(':')]
+        with self.timer:
+            for group in cohorts:
+                out = [data for data in self.runner(self.app.locust_url, group,
+                                                    pargs.rate, pargs.interval,
+                                                    pargs.sample_interval)]
+        self.log.info("&from=%(start)d&until=%(end)d %(final)s" %self.timer)
+        return out
+
+    def stats_report(self, url):
+        stats = requests.get(url + 'stats/requests').content
+        data = json.loads(stats)
+        return data
+
+    def runner(self, url, howmany, rate, interval, sample_interval):
+        self.log.info("%d start" %howmany)
+        ramp = howmany/rate
+        total_time = ramp + interval
+        if not url.endswith('/'):
+            url = url + '/'
+
+        res = requests.get(url + 'stop')
+        self.log.info(res.content)
+        with gevent.Timeout(total_time, False):
+            res = requests.post(url + 'swarm',
+                                data=dict(locust_count=howmany,
+                                          hatch_rate=rate))
+            self.log.info(res.content)
+            while True:
+                gevent.sleep(sample_interval)
+                yield self.stats_report(url)
+
+        res = requests.get(url + 'stop')
+        self.log.info("%d end" %howmany)
+
 
 def main(argv=sys.argv[1:], app=CLIApp):
     return app().run(argv)
-
-
-if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))    
-    
