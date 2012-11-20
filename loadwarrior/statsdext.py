@@ -34,7 +34,7 @@ class LoadStats(stuf):
     def report_request(self, method, path, res_time, response, slug=''):
         self.rescount.increment(slug)
         if response is not None:
-            self.rescount.increment(slug + ".%s" %response.code)
+            self.rescount.increment(slug + ".%s" %response.status)
         self.response_timer.send_raw(slug, res_time)
 
     def report_failure(self, method, path, res_time, exc, response):
