@@ -4,6 +4,7 @@ locust-pkgs:
       - git
       - python-dev
       - libzmq-dev
+      - swig
 
 
 venv:
@@ -23,9 +24,15 @@ locust-code:
         - virtualenv: venv
         - pkg: locust-pkgs
 
-
-/opt/lw-locust/etc/locust.yml:
+/etc/loadwarrior/locust.yml:
   file.managed:
-    - source: salt://locust/locustfile.yml
+    - source: salt://locust/locust.yml
     - makedirs: True
-    - mode: 755
+    - mode: 655
+
+
+/opt/lw-locust/share/locustfile.py:
+  file.managed:
+    - source: salt://locust/locustfile.py
+    - makedirs: True
+    - mode: 655
