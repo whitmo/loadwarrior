@@ -6,6 +6,7 @@ from cliff.commandmanager import CommandManager
 from functools import partial
 from loadwarrior.utils import reify
 from path import path
+import sys
 from pprint import pformat
 from stuf import frozenstuf
 from stuf import stuf
@@ -19,6 +20,7 @@ import requests
 import sys
 import time
 import yaml
+import shlex
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ class CLIApp(App):
     version = pkg_resources.get_distribution('loadwarrior').version
     default_config = path('~/.loadwarrior/global.yml').expanduser()
     config_template = dict(
-        circus_port=5555,
+        circus_port=5565,
         locust_port=8889,
         host='localhost',
         target_url=None,
@@ -131,7 +133,7 @@ class CLIApp(App):
 
     @property
     def master_and_slave(self):
-        for name in ':master', ':slave':
+        for name in '.master', '.slave':
             ret = self.circus_call('stats', name=self.slug + name)
             if ret['status'] == 'error':
                 yield None
@@ -160,6 +162,7 @@ class CLIApp(App):
     @reify
     def cclient(self):
         #@@ add ssh support??
+        self.log.info("Circus client: %s" %self.circus_endpoint)
         return CircusClient(endpoint=self.circus_endpoint)
 
     @staticmethod
@@ -167,8 +170,8 @@ class CLIApp(App):
         return dict(command=command, properties=props)
 
     def clear_locust(self):
-        self.circus_call('rm', name=self.slug + ':master')
-        self.circus_call('rm', name=self.slug + ':slave')
+        self.circus_call('rm', name=self.slug + '.master')
+        self.circus_call('rm', name=self.slug + '.slave')
 
     def circus_call(self, command, **props):
         out = self.cclient.call(self.ccmd(command, **props))
@@ -178,30 +181,41 @@ class CLIApp(App):
 
     def prep_loci(self):
         if not self.loci_up:
+            #@@ refactor command generation??
             master_cmd = self.make_loci_cmd(role=self.role_tmplt.format(role='master', extra=''))
-            slave_cmd = self.make_loci_cmd(role=self.role_tmplt.format(role='slave', extra=''))
+            self.log.info(master_cmd)
+            master_cmd = shlex.split(master_cmd)
+            basecmd = master_cmd.pop(0)
 
+            slave_cmd = self.make_loci_cmd(role=self.role_tmplt.format(role='slave', extra=''))
+            self.log.info(slave_cmd)
+            slave_args = shlex.split(slave_cmd)[1:]
+
+            self.log.info(slave_args)
             # fire up new ones
             #@@ make slaves numprocs parameterizable
-            options = dict(shell=True,
+            master_options = dict(shell=False,
+                           max_retry=1,
                            stdout_stream={
                                'class':'FileStream',
                                'filename':'/var/log/loadwarrior.log',
+                               'refresh_time':0.3},
+                           stderr_stream={
+                               'class':'FileStream',
+                               'filename':'/var/log/loadwarrior.log',
                                'refresh_time':0.3})
-            self.log.info(master_cmd)
-            self.circus_call('add', cmd=master_cmd, start=True,
-                             name=self.slug + ":master",
-                             options=options)
 
-            self.log.info(slave_cmd)
-            options['numprocesses'] = 5
-            self.circus_call('add', cmd=slave_cmd, start=True,
-                             name=self.slug + ":slave",
-                             options=options)
-            import pdb;pdb.set_trace()
-            pass
+            self.circus_call('add', cmd=basecmd, start=True,
+                             name=self.slug + ".master",
+                             args=" ".join(master_cmd),
+                             options=master_options)
 
-
+            slave_options = master_options.copy()
+            slave_options['numprocesses'] = 5
+            self.circus_call('add', cmd=basecmd, start=True,
+                             name=self.slug + ".slave",
+                             args=" ".join(slave_args),
+                             options=slave_options)
 
 
 
