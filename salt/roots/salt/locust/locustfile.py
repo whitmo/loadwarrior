@@ -1,1 +1,2 @@
-from loadwarrior.locust import  setup; setup()
+from loadwarrior.locustext import setup
+setup(__name__)
