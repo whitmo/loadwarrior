@@ -4,6 +4,7 @@ from cliff.app import App
 from cliff.command import Command
 from cliff.commandmanager import CommandManager
 from functools import partial
+from itertools import count
 from loadwarrior.utils import reify
 from path import path
 import sys
@@ -182,6 +183,10 @@ class CLIApp(App):
     def prep_loci(self):
         if not self.loci_up:
             #@@ refactor command generation??
+            # use circus env to handle
+            # - target
+            # - locust class
+            # -
             master_cmd = self.make_loci_cmd(role=self.role_tmplt.format(role='master', extra=''))
             self.log.info(master_cmd)
             master_cmd = shlex.split(master_cmd)
@@ -211,12 +216,27 @@ class CLIApp(App):
                              options=master_options)
 
             slave_options = master_options.copy()
-            slave_options['numprocesses'] = 5
+            slave_options['numprocesses'] = self.def_slave_num
             self.circus_call('add', cmd=basecmd, start=True,
                              name=self.slug + ".slave",
                              args=" ".join(slave_args),
                              options=slave_options)
+            
+            self.test_connection(self.locust_url + '/stop')
 
+    def test_connection(self, url, total_time=5, wait=0.5):
+        """
+        If
+        """
+        gevent.sleep(wait)
+        with gevent.Timeout(8, RuntimeError('%s not up' %self.locust_url)):
+            while True:
+                try:
+                    res = requests.get(url)
+                    if res.content:
+                        return True
+                except requests.ConnectionError:
+                    gevent.sleep(wait)
 
 
 """
