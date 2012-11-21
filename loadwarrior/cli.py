@@ -240,25 +240,6 @@ class CLIApp(App):
 
 
 """
-stdout_stream.class = FileStream
-stdout_stream.filename = test.log
-stdout_stream.refresh_time = 0.3
-"""
-
-"""
-[program:locusts]
-command = /opt/loadtest/locust/bin/locust -P 8889 -H http://monkeytest1.com -f /opt/loadtest/locust/src/smlt/loci/anonweb.py --slave
-numprocs = 10
-process_name = %(process_num)d
-redirect_stderr = true
-
-[program:locust_master]
-command = /opt/loadtest/locust/bin/locust -P 8889 -H http://monkeytest1.com -f /opt/loadtest/locust/src/smlt/loci/anonweb.py --master
-autostart=True
-redirect_stderr = true
-"""
-
-"""
 http://monitoring/render/?width=1123
 &height=566
 &_salt=1351798791.597
@@ -275,7 +256,6 @@ http://monitoring/render/?width=1123
 &title=Loadtest%20metrics
 &from=12%3A30_20121101
 """
-
 class Timer(stuf):
     def __init__(self):
         self.start = None
